@@ -1,0 +1,29 @@
+# ===== Dependencies =====
+node_modules/
+
+# ===== ความลับ (token) — ห้าม commit! =====
+.env
+.env.*
+!.env.example
+
+# ===== Build output / exe =====
+dist/
+dist-lock/
+dist123/
+*.exe
+locked.flag
+icon.ico
+
+# ===== Backup / archive =====
+*.zip
+
+# ===== Logs =====
+*.log
+discordschool-bot.log
+
+# ===== OS / editor =====
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp

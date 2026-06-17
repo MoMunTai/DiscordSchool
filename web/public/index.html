@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Discord School — Control</title>
+<style>
+  :root { --bg:#1e2030; --card:#2a2d44; --line:#3a3f5c; --txt:#e6e8f0; --mut:#9aa0bf; --acc:#5865f2; --ok:#3ba55d; --off:#ed4245; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:'Segoe UI',Tahoma,sans-serif; background:var(--bg); color:var(--txt); }
+  .wrap { max-width:900px; margin:0 auto; padding:16px; }
+  h1 { font-size:20px; margin:8px 0 16px; display:flex; align-items:center; gap:10px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .badge { padding:6px 12px; border-radius:8px; font-weight:600; font-size:14px; }
+  .dot { width:12px; height:12px; border-radius:50%; display:inline-block; }
+  .on { background:var(--ok); } .down { background:var(--off); }
+  button { background:var(--acc); color:#fff; border:0; border-radius:8px; padding:10px 16px; font-size:14px; font-weight:600; cursor:pointer; }
+  button:hover { filter:brightness(1.1); } button:disabled { opacity:.5; cursor:not-allowed; }
+  button.stop { background:var(--off); } button.warn { background:#faa61a; color:#222; }
+  .stat { background:var(--bg); border-radius:8px; padding:10px 14px; min-width:90px; text-align:center; }
+  .stat .n { font-size:22px; font-weight:700; } .stat .l { font-size:12px; color:var(--mut); }
+  input[type=number] { width:70px; background:var(--bg); color:var(--txt); border:1px solid var(--line); border-radius:6px; padding:6px; }
+  .vol-room { display:flex; align-items:center; gap:8px; background:var(--bg); padding:8px 10px; border-radius:8px; }
+  .vol-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:8px; margin-top:10px; }
+  label { color:var(--mut); font-size:13px; }
+  #log { background:#15161f; border:1px solid var(--line); border-radius:8px; padding:10px; height:340px; overflow:auto; font-family:Consolas,monospace; font-size:12.5px; line-height:1.5; white-space:pre-wrap; word-break:break-word; }
+  .muted { color:var(--mut); font-size:13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>📡 Discord School — Control Panel</h1>
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <div class="row">
+        <span class="badge" id="statusBadge"><span class="dot down" id="dot"></span> <span id="statusText">กำลังเชื่อมต่อ...</span></span>
+      </div>
+      <div class="row">
+        <div class="stat"><div class="n" id="bots">0</div><div class="l">บอทออนไลน์</div></div>
+        <div class="stat"><div class="n" id="rooms">0</div><div class="l">ห้องพร้อม</div></div>
+      </div>
+    </div>
+    <div class="row" style="margin-top:14px">
+      <button id="btnStart" onclick="act('start')">▶ เริ่ม</button>
+      <button id="btnStop" class="stop" onclick="act('stop')">■ หยุด</button>
+      <button id="btnRestart" class="warn" onclick="act('restart')">↻ รีสตาร์ท</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <strong>🔊 ปรับเสียง Talkback (รายห้อง → Leader)</strong>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <label>ทุกห้องพร้อมกัน:</label>
+      <input type="number" id="volAll" value="1.0" step="0.1" min="0" max="2" />
+      <button onclick="setAll()">ตั้งทุกห้อง</button>
+      <span class="muted">1.0 = 100%, 1.5 = 150%, 0 = ปิด</span>
+    </div>
+    <div class="vol-grid" id="volGrid"></div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <strong>📄 Log สด</strong>
+      <button class="warn" onclick="document.getElementById('log').textContent=''">ล้างจอ</button>
+    </div>
+    <div id="log"></div>
+  </div>
+</div>
+
+<script>
+let pw = localStorage.getItem("ds_pw") || "";
+function headers() { return pw ? { "Content-Type":"application/json", "x-password":pw } : { "Content-Type":"application/json" }; }
+
+async function api(pathName, method="GET", body) {
+  const r = await fetch("/api/"+pathName, { method, headers:headers(), body: body?JSON.stringify(body):undefined });
+  if (r.status === 401) { askPw(); throw new Error("unauthorized"); }
+  return r.json();
+}
+function askPw() {
+  const p = prompt("ใส่รหัสผ่าน:");
+  if (p !== null) { pw = p; localStorage.setItem("ds_pw", p); location.reload(); }
+}
+async function act(a) { try { await api(a, "POST"); } catch(e){} }
+async function setRoom(room, value) { try { await api("volume","POST",{room,value:parseFloat(value)}); } catch(e){} }
+async function setAll() { try { await api("volume","POST",{all:parseFloat(document.getElementById("volAll").value)}); } catch(e){} }
+
+function renderRooms(rooms) {
+  const g = document.getElementById("volGrid");
+  if (g.dataset.done === "1") return;
+  g.innerHTML = "";
+  rooms.forEach(r => {
+    const d = document.createElement("div");
+    d.className = "vol-room";
+    d.innerHTML = `<span style="flex:1">${r.replace('Bot','')}</span>
+      <input type="number" value="1.0" step="0.1" min="0" max="2" id="v_${r}" />
+      <button onclick="setRoom('${r}', document.getElementById('v_${r}').value)">ตั้ง</button>`;
+    g.appendChild(d);
+  });
+  g.dataset.done = "1";
+}
+
+function applyStatus(s) {
+  document.getElementById("bots").textContent = s.bots || 0;
+  document.getElementById("rooms").textContent = s.rooms || 0;
+  const on = s.running;
+  document.getElementById("dot").className = "dot " + (on ? "on" : "down");
+  document.getElementById("statusText").textContent = on ? (s.ready ? "กำลังทำงาน" : "กำลังเริ่ม...") : "หยุดอยู่";
+  document.getElementById("btnStart").disabled = on;
+  document.getElementById("btnStop").disabled = !on;
+}
+
+function addLog(line) {
+  const el = document.getElementById("log");
+  const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+  el.textContent += line + "\n";
+  if (atBottom) el.scrollTop = el.scrollHeight;
+}
+
+function connect() {
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  const ws = new WebSocket(`${proto}://${location.host}/?pw=${encodeURIComponent(pw)}`);
+  ws.onmessage = (ev) => {
+    const m = JSON.parse(ev.data);
+    if (m.type === "init") { renderRooms(m.rooms||[]); applyStatus(m.stats||{}); (m.logs||[]).forEach(addLog); }
+    else if (m.type === "log") addLog(m.line);
+    else if (m.type === "status") applyStatus(m.stats||{});
+  };
+  ws.onclose = () => setTimeout(connect, 2000);
+  ws.onerror = () => ws.close();
+}
+
+// โหลดสถานะเริ่มต้น (เช็ครหัสผ่านด้วย)
+api("status").then(d => { renderRooms(d.rooms||[]); applyStatus(d.stats||{}); connect(); }).catch(()=>{});
+</script>
+</body>
+</html>
