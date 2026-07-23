@@ -9,40 +9,12 @@ if (process.platform === "win32") {
   } catch {}
 }
 
-// ---------------------------------------------------------------------------
-//  โหมดทำงาน
-//  - CHILD = true เมื่อถูก spawn จาก web dashboard (stdin เป็น pipe ไม่ใช่ TTY)
-//    → เปิดรับคำสั่งทาง stdin + ส่ง "สถานะ" กลับไปให้เว็บแบบ machine-readable
-// ---------------------------------------------------------------------------
-const CHILD = !process.stdin.isTTY;
-
-// ----- logging: timestamp ทุกบรรทัด ให้ดูเป็นระบบ + ตรงกับ log บนเว็บ -----
-const pad2 = (n) => String(n).padStart(2, "0");
-function ts() {
-  const d = new Date();
-  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
-}
-const _rawLog = console.log.bind(console);
-const _rawErr = console.error.bind(console);
-console.log = (...a) => _rawLog(`[${ts()}]`, ...a);
-console.warn = (...a) => _rawLog(`[${ts()}] ⚠️ `, ...a);
-console.error = (...a) => _rawErr(`[${ts()}] ⛔`, ...a);
-
-// ส่ง "เหตุการณ์สถานะ" ให้ web dashboard (เฉพาะตอนเป็น child) — เว็บใช้ทำตัวเลข/ไฟ ON AIR
-function emit(evt, data = {}) {
-  if (CHILD) process.stdout.write("GWB " + JSON.stringify({ evt, ...data }) + "\n");
-}
-
-// แบนเนอร์ (พิมพ์ดิบ ไม่ติด timestamp)
-process.stdout.write(
-  "\n============================================================\n" +
-    "   🎙  Guild War Broadcast\n" +
-    "       เสียงประกาศสงครามกิลด์ • by KongPlayCh\n" +
-    "============================================================\n"
-);
+console.log("============================================================");
+console.log("   📡  Discord School Broadcast");
+console.log("============================================================");
 
 // --- กันเปิดซ้ำ (single instance) — ป้องกัน token ชนจากการรันหลายตัว ---
-const LOCK_FILE = path.join(os.tmpdir(), "guildwar-broadcast.lock");
+const LOCK_FILE = path.join(os.tmpdir(), "discordschool.lock");
 function pidAlive(pid) {
   try {
     process.kill(pid, 0);
@@ -55,7 +27,8 @@ try {
   if (fs.existsSync(LOCK_FILE)) {
     const oldPid = parseInt(fs.readFileSync(LOCK_FILE, "utf8").trim(), 10);
     if (oldPid && oldPid !== process.pid && pidAlive(oldPid)) {
-      console.log("โปรแกรมเปิดอยู่แล้ว (อีกหน้าต่างหนึ่ง) — ไม่เปิดซ้ำ ปิดหน้าต่างนี้ได้เลย");
+      console.log("\n⚠️  โปรแกรมเปิดอยู่แล้ว (อีกหน้าต่างหนึ่ง) — ไม่เปิดซ้ำ");
+      console.log("   ปิดหน้าต่างนี้ได้เลย\n");
       setTimeout(() => process.exit(0), 6000); // ค้างไว้ให้อ่านก่อนปิด
       return;
     }
@@ -63,18 +36,18 @@ try {
   fs.writeFileSync(LOCK_FILE, String(process.pid));
 } catch {}
 
-// โหมดล็อก: ถ้ามีไฟล์ locked.flag (ใส่ตอน build) = ใช้แต่ config ที่ฝังในตัว ไม่อ่านภายนอก
+// โหมดล็อก: ถ้ามีไฟล์ locked.flag (ใส่ตอน build แบบล็อก) = ใช้แต่ config ที่ฝังในตัว ไม่อ่านภายนอก
 const LOCKED = fs.existsSync(path.join(__dirname, "locked.flag"));
 // โฟลเดอร์สำหรับหา config.js / .env "ภายนอก" (ข้างๆ exe) — แก้ได้โดยไม่ต้อง build ใหม่
-const APP_DIR = LOCKED ? __dirname : process.env.GWB_DIR || process.cwd();
-if (LOCKED) console.log("🔒 โหมดฝังค่า: ใช้การตั้งค่าที่ build มาในตัว");
+const APP_DIR = LOCKED ? __dirname : process.env.DISCORDSCHOOL_DIR || process.cwd();
+if (LOCKED) console.log("🔒 โหมดล็อก: ใช้ config ที่ฝังในตัว (แก้ไม่ได้)");
 
 // โหลด .env: ตัวที่ฝังในตัว (fallback) ก่อน แล้วให้ตัวภายนอก override (ถ้าไม่ล็อก)
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 if (!LOCKED) require("dotenv").config({ path: path.join(APP_DIR, ".env"), override: true });
 
-process.on("unhandledRejection", (e) => console.error("unhandledRejection:", e));
-process.on("uncaughtException", (e) => console.error("uncaughtException:", e));
+process.on("unhandledRejection", console.error);
+process.on("uncaughtException", console.error);
 
 const { Client, GatewayIntentBits, MessageFlags } = require("discord.js");
 const {
@@ -95,28 +68,15 @@ const { EventEmitter } = require("node:events");
 const extConfig = path.join(APP_DIR, "config.js");
 let config;
 try {
-  const useExternal = !LOCKED && fs.existsSync(extConfig) && path.resolve(extConfig) !== path.resolve(__dirname, "config.js");
-  config = useExternal ? require(extConfig) : require("./config");
-  if (useExternal) console.log(`⚙️  ใช้การตั้งค่าภายนอก: ${extConfig}`);
+  config = fs.existsSync(extConfig) && path.resolve(extConfig) !== path.resolve(__dirname, "config.js")
+    ? require(extConfig)
+    : require("./config");
+  if (path.resolve(extConfig) !== path.resolve(__dirname, "config.js") && fs.existsSync(extConfig)) {
+    console.log(`⚙️  ใช้ config ภายนอก: ${extConfig}`);
+  }
 } catch (e) {
   console.error("อ่าน config ภายนอกไม่ได้ ใช้ตัวในตัวแทน:", e.message);
   config = require("./config");
-}
-
-// ---------------------------------------------------------------------------
-//  เลือกเฉพาะห้องที่เปิดใช้ — web dashboard ส่งรายชื่อมาทาง env: GWB_ROOMS="A1Bot,B2Bot"
-//  ไม่ได้ตั้ง GWB_ROOMS = ใช้ทุกห้องใน config ตามเดิม (เช่นรันตรงด้วย npm start)
-// ---------------------------------------------------------------------------
-if (process.env.GWB_ROOMS !== undefined) {
-  const want = new Set(process.env.GWB_ROOMS.split(",").map((s) => s.trim()).filter(Boolean));
-  const total = (config.speakers || []).length;
-  config.speakers = (config.speakers || []).filter((s) => want.has(s.name));
-  console.log(`🎛  เปิดใช้ ${config.speakers.length}/${total} ห้อง: ${config.speakers.map((s) => s.name).join(", ") || "-"}`);
-  if (!config.speakers.length) {
-    console.error("ไม่ได้เลือกห้องเลย — เปิดอย่างน้อย 1 ห้องบนหน้าเว็บก่อนกดเริ่ม");
-    emit("fatal", { reason: "no-rooms" });
-    process.exit(1);
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -126,7 +86,9 @@ if (process.env.GWB_ROOMS !== undefined) {
 const bus = new EventEmitter();
 bus.setMaxListeners(0); // มี speaker ได้ไม่จำกัด
 
-// Talkback bus: เสียงหัวหน้า/รอง จากห้อง → ส่งกลับเล่นในห้อง Leader Room
+// ---------------------------------------------------------------------------
+//  Talkback bus: เสียงหัวหน้า/รอง จากห้องเรียน → ส่งกลับเล่นในห้อง Leader Room
+// ---------------------------------------------------------------------------
 const talkbackBus = new EventEmitter();
 talkbackBus.setMaxListeners(0);
 // ระดับเสียง talkback รายห้อง: ชื่อห้อง -> gain (1.0=100%, 0=ปิด, สูงสุด 2.0=200%)
@@ -141,15 +103,12 @@ const PCM = { rate: 48000, channels: 2, frameSize: 960 };
 // 1 เฟรม PCM 20ms @ 48kHz stereo s16le = 960 samples * 2 ch * 2 bytes = 3840 bytes
 const FRAME_BYTES = 3840;
 const SILENCE_FRAME = Buffer.alloc(FRAME_BYTES);
-// จำกัดความลึกคิวเสียง (กัน latency สะสม) — ตั้งได้ใน config.js: bufferFrames (1 เฟรม = 20ms)
-//  3 ≈ 60ms  (ดีเลย์ต่ำสุด — เหมาะเครื่องแรง+สาย LAN; เครื่อง/เน็ตไม่แรงจะเสียงสะดุด)
-//  6 ≈ 120ms (นิ่งขึ้นมาก ดีเลย์เพิ่มแค่ ~0.06 วิ — แนะนำสำหรับเครื่องทั่วไป)
-//  10 ≈ 200ms (เน้นนิ่งสุด สำหรับเครื่อง/เน็ตอ่อน)
-const MAX_QUEUE_FRAMES = Number(config.bufferFrames) || 3;
-console.log(`🎚  buffer เสียง: ${MAX_QUEUE_FRAMES} เฟรม (≈${MAX_QUEUE_FRAMES * 20}ms)`);
+// จำกัดความลึกคิวเสียง (กัน latency สะสม) — 5 เฟรม ≈ 100ms (ต่ำ = ดีเลย์น้อยแต่อาจสะดุดถ้าเน็ตกระตุก)
+const MAX_QUEUE_FRAMES = 5;
 
 // สตรีม PCM ต่อเนื่องต่อ 1 speaker:
-//  - มีเสียงจริงในคิว → ส่งเสียงจริง / ไม่มี → ส่งความเงียบ
+//  - มีเสียงจริงในคิว → ส่งเสียงจริง
+//  - ไม่มี → ส่งความเงียบ
 // ทำให้ stream "ไม่มีวันจบ" → AudioPlayer อยู่สถานะ playing ตลอด ไม่หล่นเป็น idle
 class ContinuousPCM extends Readable {
   constructor() {
@@ -158,7 +117,8 @@ class ContinuousPCM extends Readable {
   }
   feed(chunk) {
     this.queue.push(chunk);
-    while (this.queue.length > MAX_QUEUE_FRAMES) this.queue.shift(); // ทิ้งเฟรมเก่า ตามเสียงสดให้ทัน
+    // กัน latency สะสม: ถ้าคิวลึกเกิน ทิ้งเฟรมเก่าทิ้ง ตามเสียงสดให้ทัน
+    while (this.queue.length > MAX_QUEUE_FRAMES) this.queue.shift();
   }
   _read() {
     this.push(this.queue.shift() || SILENCE_FRAME);
@@ -194,7 +154,7 @@ async function isAllowedTalker(guild, userId, cfg) {
   return false;
 }
 
-// helper: เข้าห้องเสียงแล้วรอจน Ready (พร้อม auto-reconnect)
+// helper: เข้าห้องเสียงแล้วรอจน Ready (พร้อม log สถานะ + auto-reconnect)
 async function connectToChannel(client, channelId, { selfDeaf, selfMute, label }) {
   const channel = await client.channels.fetch(channelId).catch(() => null);
   if (!channel) {
@@ -214,21 +174,27 @@ async function connectToChannel(client, channelId, { selfDeaf, selfMute, label }
     selfMute,
     // ⭐ สำคัญ: บอทหลายตัวใน guild เดียวกันต้องมี group ไม่ซ้ำกัน
     // ไม่งั้น @discordjs/voice จะถือว่าเป็น connection เดียวกัน (index ด้วย guildId)
+    // แล้วตัวหลังเขียนทับตัวหน้า → บอทเด้งไปห้องสุดท้ายตัวเดียว
     group: label,
   });
 
-  connection.on("error", (err) => console.error(`[${label}] เสียงผิดพลาด:`, err.message));
+  connection.on("stateChange", (oldS, newS) => {
+    if (oldS.status !== newS.status) {
+      console.log(`[${label}] voice: ${oldS.status} -> ${newS.status}`);
+    }
+  });
+  connection.on("error", (err) => console.error(`[${label}] VOICE ERROR:`, err.message));
 
   // ถ้าหลุด ลองต่อใหม่อัตโนมัติ
   connection.on(VoiceConnectionStatus.Disconnected, async () => {
-    console.warn(`[${label}] หลุดการเชื่อมต่อ — กำลังลองต่อใหม่`);
+    console.warn(`[${label}] หลุดการเชื่อมต่อ — กำลังลองต่อใหม่...`);
     try {
       await Promise.race([
         entersState(connection, VoiceConnectionStatus.Signalling, 5_000),
         entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
       ]);
     } catch {
-      console.error(`[${label}] ต่อใหม่ไม่สำเร็จ — ปิดการเชื่อมต่อ`);
+      console.error(`[${label}] ต่อใหม่ไม่สำเร็จ — destroy connection`);
       connection.destroy();
     }
   });
@@ -245,9 +211,10 @@ async function connectToChannel(client, channelId, { selfDeaf, selfMute, label }
 }
 
 // ===========================================================================
-//  Slash command ปรับ volume talkback: /setvoltb, /setvolall, /voltb
+//  Slash command ปรับ volume talkback รายห้อง: /setvoltb, /voltb
 // ===========================================================================
 async function setupVolumeCommands(client, guild) {
+  // ลงทะเบียนคำสั่งแบบ guild (ใช้ได้ทันที)
   const commandData = [
     {
       name: "setvoltb",
@@ -256,15 +223,14 @@ async function setupVolumeCommands(client, guild) {
         {
           name: "room",
           description: "ห้อง",
-          type: 3,
+          type: 3, // STRING
           required: true,
-          // โชว์ "ชื่อห้อง" (label) ให้คนเลือก แต่ค่าที่ส่งจริงยังเป็นชื่อบอท (คีย์ภายใน)
-          choices: config.speakers.slice(0, 25).map((s) => ({ name: s.label || s.name, value: s.name })),
+          choices: config.speakers.slice(0, 25).map((s) => ({ name: s.name, value: s.name })),
         },
         {
           name: "value",
           description: "ค่าความดัง 0–2 (เช่น 1.0=100%, 1.3=130%, 0=ปิด)",
-          type: 10,
+          type: 10, // NUMBER
           required: true,
           min_value: 0,
           max_value: VOL_MAX,
@@ -278,45 +244,42 @@ async function setupVolumeCommands(client, guild) {
         {
           name: "value",
           description: "ค่าความดัง 0–2 (เช่น 1.0=100%, 1.5=150%, 0=ปิดทุกห้อง)",
-          type: 10,
+          type: 10, // NUMBER
           required: true,
           min_value: 0,
           max_value: VOL_MAX,
         },
       ],
     },
-    { name: "voltb", description: "ดูระดับเสียง Talkback ของทุกห้อง" },
+    {
+      name: "voltb",
+      description: "ดูระดับเสียง Talkback ของทุกห้อง",
+    },
   ];
 
   try {
     await guild.commands.set(commandData);
-    console.log("🎚  ลงทะเบียนคำสั่ง /setvoltb /setvolall /voltb แล้ว");
+    console.log("🎚  ลงทะเบียนคำสั่ง /setvoltb, /setvolall, /voltb แล้ว");
   } catch (e) {
-    console.error("ลงทะเบียน slash command ไม่สำเร็จ:", e.message);
+    console.error("⛔ ลงทะเบียน slash command ไม่สำเร็จ:", e.message);
     console.error("   👉 เชิญ LeaderBot ใหม่ให้มี scope 'applications.commands' (ดูคู่มือ)");
   }
 
   client.on("interactionCreate", async (i) => {
     if (!i.isChatInputCommand()) return;
-    // กันคำสั่งทะลุข้ามดิส: token ชุดเดียวกันอาจรันพร้อมกันหลายดิส (คนละ instance)
-    // ทุก instance ได้รับ event เหมือนกันหมด → สนใจเฉพาะดิสของห้อง Leader ตัวเองเท่านั้น
-    if (i.guildId !== guild.id) return;
 
     if (i.commandName === "setvoltb") {
       const room = i.options.getString("room");
       let value = i.options.getNumber("value");
-      const sp = config.speakers.find((s) => s.name === room);
-      if (!sp) {
+      if (!config.speakers.find((s) => s.name === room)) {
         return i.reply({ content: `❌ ไม่พบห้อง ${room}`, flags: MessageFlags.Ephemeral });
       }
-      const label = sp.label || sp.name;
       value = Math.max(0, Math.min(VOL_MAX, value));
       roomVolume.set(room, value);
       const pct = Math.round(value * 100);
-      console.log(`🔊 ตั้งเสียง talkback: ${label} = ${pct}% (โดย ${i.user.tag})`);
-      emit("vol", { room, pct });
+      console.log(`🔊 ตั้ง volume talkback: ${room} = ${pct}% (โดย ${i.user.tag})`);
       return i.reply({
-        content: `✅ ${label} → **${pct}%**${value === 0 ? " (ปิดเสียงห้องนี้)" : ""}`,
+        content: `✅ ${room} → **${pct}%**${value === 0 ? " (ปิดเสียงห้องนี้)" : ""}`,
         flags: MessageFlags.Ephemeral,
       });
     }
@@ -326,8 +289,7 @@ async function setupVolumeCommands(client, guild) {
       value = Math.max(0, Math.min(VOL_MAX, value));
       for (const s of config.speakers) roomVolume.set(s.name, value);
       const pct = Math.round(value * 100);
-      console.log(`🔊 ตั้งเสียงทุกห้อง = ${pct}% (โดย ${i.user.tag})`);
-      emit("volall", { pct });
+      console.log(`🔊 ตั้ง volume ทุกห้อง = ${pct}% (โดย ${i.user.tag})`);
       return i.reply({
         content: `✅ ตั้งทุกห้อง (${config.speakers.length} ห้อง) → **${pct}%**${value === 0 ? " (ปิดทั้งหมด)" : ""}`,
         flags: MessageFlags.Ephemeral,
@@ -337,7 +299,7 @@ async function setupVolumeCommands(client, guild) {
     if (i.commandName === "voltb") {
       const lines = config.speakers.map((s) => {
         const pct = Math.round((roomVolume.get(s.name) ?? 1) * 100);
-        return `• ${s.label || s.name}: **${pct}%**${pct === 0 ? " (ปิด)" : ""}`;
+        return `• ${s.name}: **${pct}%**${pct === 0 ? " (ปิด)" : ""}`;
       });
       return i.reply({
         content: "**ระดับเสียง Talkback ปัจจุบัน**\n" + lines.join("\n"),
@@ -350,19 +312,6 @@ async function setupVolumeCommands(client, guild) {
 // ===========================================================================
 //  LEADER: ฟังเสียงในห้อง Leader Room แล้ว relay เป็น PCM ขึ้น bus
 // ===========================================================================
-let airCount = 0; // จำนวนคนที่กำลังพูดในห้อง Leader (>0 = ON AIR)
-function setAir(delta) {
-  const before = airCount;
-  airCount = Math.max(0, airCount + delta);
-  if (before === 0 && airCount > 0) {
-    console.log("🔴 ON AIR — กำลังกระจายเสียงไปทุกห้อง");
-    emit("air", { on: true });
-  } else if (before > 0 && airCount === 0) {
-    console.log("⚪ จบการพูด — เงียบ");
-    emit("air", { on: false });
-  }
-}
-
 async function startLeader() {
   const cfg = config.leader;
   if (!cfg.token) throw new Error("ไม่พบ token ของ LeaderBot (ตั้ง LEADER_TOKEN ใน .env)");
@@ -372,10 +321,9 @@ async function startLeader() {
   });
 
   client.once("clientReady", async () => {
+    console.log(`👂 ${cfg.name} logged in as ${client.user.tag}`);
     botIds.add(client.user.id);
-    console.log(`✅ ${cfg.name} ออนไลน์ (${client.user.tag})`);
-    emit("bot", { name: cfg.name, role: "leader" });
-    // selfDeaf=false เพื่อ "รับ" เสียงอาจารย์ใหญ่ / selfMute=true (LeaderBot แค่ฟัง)
+    // selfDeaf=false เพื่อ "รับ" เสียงอาจารย์ใหญ่ / selfMute=true เพราะ LeaderBot แค่ฟัง (talkback เล่นที่ TalkbackBot)
     const { connection, channel } = await connectToChannel(client, cfg.channelId, {
       selfDeaf: false,
       selfMute: true,
@@ -383,6 +331,7 @@ async function startLeader() {
     });
     console.log(`👂 ${cfg.name} กำลังฟังในห้อง: ${channel.name}`);
 
+    // --- ลงทะเบียน slash command ปรับ volume talkback (/setvoltb, /voltb) ---
     await setupVolumeCommands(client, channel.guild);
 
     const receiver = connection.receiver;
@@ -392,20 +341,24 @@ async function startLeader() {
       if (botIds.has(userId)) return; // ข้ามเสียงบอทเรา (กัน LeaderBot ได้ยิน TalkbackBot)
       if (active.has(userId)) return;
       active.add(userId);
-      setAir(+1);
+      console.log(`🎙  ตรวจพบเสียงพูดจาก userId=${userId} → กำลัง relay`);
 
       const opusStream = receiver.subscribe(userId, {
         end: { behavior: EndBehaviorType.AfterSilence, duration: 300 },
       });
       const decoder = new prism.opus.Decoder(PCM);
+
       opusStream.pipe(decoder);
-      decoder.on("data", (pcmChunk) => bus.emit("pcm", pcmChunk));
+      let frames = 0;
+      decoder.on("data", (pcmChunk) => {
+        if (frames === 0) console.log(`   ↳ 🎚  Leader decode PCM สำเร็จ (เริ่มส่งขึ้น bus)`);
+        frames++;
+        bus.emit("pcm", pcmChunk);
+      });
       opusStream.on("data", () => {}); // ensure flowing
 
       const cleanup = () => {
-        if (!active.has(userId)) return;
         active.delete(userId);
-        setAir(-1);
         decoder.destroy();
       };
       opusStream.on("end", cleanup);
@@ -418,11 +371,11 @@ async function startLeader() {
 }
 
 // ===========================================================================
-//  SPEAKER: เล่นเสียงจาก bus ในห้องของตัวเอง + รับ talkback ส่งกลับ
+//  SPEAKER: เล่นเสียงจาก bus ในห้องเรียนของตัวเอง
 // ===========================================================================
 async function startSpeaker(cfg) {
   if (!cfg.token) {
-    console.warn(`ข้าม ${cfg.name}: ไม่พบ token (ตั้ง ${cfg.name.toUpperCase()} ใน .env)`);
+    console.warn(`⚠️  ข้าม ${cfg.name}: ไม่พบ token (ตั้ง ${cfg.name.toUpperCase()} token ใน .env)`);
     return;
   }
 
@@ -431,47 +384,59 @@ async function startSpeaker(cfg) {
   });
 
   client.once("clientReady", async () => {
+    console.log(`🔊 ${cfg.name} logged in as ${client.user.tag}`);
     botIds.add(client.user.id);
-    console.log(`✅ ${cfg.name} ออนไลน์ (${client.user.tag})`);
-    emit("bot", { name: cfg.name, role: "speaker" });
-
+    // selfDeaf=false เพื่อ "รับ" เสียงหัวหน้า/รอง (talkback) / selfMute=false เพื่อเล่น broadcast
     const { connection, channel } = await connectToChannel(client, cfg.channelId, {
       selfDeaf: false,
       selfMute: false,
       label: cfg.name,
     });
-    console.log(`🔊 ${cfg.name} พร้อมเล่นเสียง: ${channel.name}`);
-    emit("room", { name: cfg.name });
+    console.log(`🔊 ${cfg.name} พร้อมเล่นเสียงในห้อง: ${channel.name}`);
 
-    const player = createAudioPlayer({ behaviors: { noSubscriber: NoSubscriberBehavior.Play } });
-    player.on("error", (err) => console.error(`${cfg.name} player error:`, err.message));
+    const player = createAudioPlayer({
+      behaviors: { noSubscriber: NoSubscriberBehavior.Play },
+    });
+    player.on("error", (err) => console.error(`${cfg.name} PLAYER ERROR:`, err));
+    player.on("stateChange", (o, n) => {
+      if (o.status !== n.status) console.log(`   [${cfg.name}] player: ${o.status} -> ${n.status}`);
+    });
 
-    // สตรีม PCM ต่อเนื่อง — player อยู่ playing ตลอด ไม่หล่น idle
+    // สตรีม PCM ต่อเนื่อง (เงียบเมื่อไม่มีเสียง) — player อยู่ playing ตลอด ไม่หล่น idle
     const pcmStream = new ContinuousPCM();
-    player.play(createAudioResource(pcmStream, { inputType: StreamType.Raw }));
+    const resource = createAudioResource(pcmStream, { inputType: StreamType.Raw });
+    player.play(resource);
     connection.subscribe(player);
 
-    // ทุก chunk ที่ Leader ส่งมา → ป้อนเข้าคิวของห้องนี้ (ไม่ log ต่อเฟรม เพื่อความนิ่ง)
-    bus.on("pcm", (chunk) => pcmStream.feed(chunk));
+    // ทุก chunk ที่ Leader ส่งมา → ป้อนเข้าคิวของห้องนี้
+    let lastBeat = 0;
+    bus.on("pcm", (chunk) => {
+      pcmStream.feed(chunk);
+      // log แบบ throttle ทุก ~2 วิ ให้เห็นว่าเสียงไหลเข้าห้องนี้จริง
+      const now = process.hrtime.bigint();
+      if (now - BigInt(lastBeat) > 2_000_000_000n) {
+        lastBeat = Number(now);
+        console.log(`   ↳ 🔊 ${cfg.name} กำลังเล่นเสียง relay...`);
+      }
+    });
 
     // --- TALKBACK: รับเสียงหัวหน้า/รอง (ตาม role) แล้วส่งกลับขึ้น talkbackBus ---
     const receiver = connection.receiver;
     const guild = channel.guild;
     const talking = new Set();
-    const pending = new Set();
+    const pending = new Set(); // กัน race ระหว่างรอเช็ค role
     receiver.speaking.on("start", async (userId) => {
       if (botIds.has(userId)) return; // ข้ามเสียงบอทเรา (กันลูป)
-      if ((roomVolume.get(cfg.name) ?? 1) <= 0) return; // ห้องนี้ถูกปิด (volume = 0)
+      if ((roomVolume.get(cfg.name) ?? 1) <= 0) return; // ห้องนี้ถูกตั้ง volume = 0 (ปิด)
       if (talking.has(userId) || pending.has(userId)) return;
 
       pending.add(userId);
       const allowed = await isAllowedTalker(guild, userId, cfg);
       pending.delete(userId);
-      if (!allowed) return; // ไม่ใช่หัวหน้า/รอง
+      if (!allowed) return; // ไม่ใช่หัวหน้า/รอง → ไม่ส่ง
       if (talking.has(userId)) return;
       talking.add(userId);
-      console.log(`⬆️  ${cfg.name} พูดกลับหา Leader`);
-      emit("talkback", { name: cfg.name, on: true });
+      console.log(`   ⬆️  ${cfg.name}: รับเสียงหัวหน้า/รอง (userId=${userId}) → ส่งกลับ Leader`);
 
       const opusStream = receiver.subscribe(userId, {
         end: { behavior: EndBehaviorType.AfterSilence, duration: 300 },
@@ -480,13 +445,11 @@ async function startSpeaker(cfg) {
       opusStream.pipe(decoder);
       decoder.on("data", (pcm) => {
         const g = roomVolume.get(cfg.name) ?? 1;
-        if (g > 0) talkbackBus.emit("pcm", applyGain(pcm, g));
+        if (g > 0) talkbackBus.emit("pcm", applyGain(pcm, g)); // ปรับความดังตาม volume ห้อง
       });
 
       const cleanup = () => {
-        if (!talking.has(userId)) return;
         talking.delete(userId);
-        emit("talkback", { name: cfg.name, on: false });
         decoder.destroy();
       };
       opusStream.on("end", cleanup);
@@ -505,7 +468,7 @@ async function startSpeaker(cfg) {
 async function startTalkbackBot() {
   const cfg = config.talkbackBot;
   if (!cfg || !cfg.token) {
-    console.warn("ข้าม TalkbackBot: ยังไม่ได้ตั้ง TALKBACK_TOKEN ใน .env (talkback ฉุกเฉินจะไม่ทำงาน)");
+    console.warn("⚠️  ข้าม TalkbackBot: ยังไม่ได้ตั้ง TALKBACK_TOKEN ใน .env (talkback ฉุกเฉินจะไม่ทำงาน)");
     return;
   }
 
@@ -514,11 +477,10 @@ async function startTalkbackBot() {
   });
 
   client.once("clientReady", async () => {
+    console.log(`📻 ${cfg.name} logged in as ${client.user.tag}`);
     botIds.add(client.user.id);
-    console.log(`✅ ${cfg.name} ออนไลน์ (${client.user.tag})`);
-    emit("bot", { name: cfg.name, role: "talkback" });
     try {
-      // selfDeaf=true (แค่เล่น) / selfMute=false (ต้องส่งเสียง talkback ออก)
+      // selfDeaf=true (แค่เล่น ไม่ต้องรับ) / selfMute=false (ต้องส่งเสียง talkback ออก)
       const { connection, channel } = await connectToChannel(client, cfg.channelId, {
         selfDeaf: true,
         selfMute: false,
@@ -526,16 +488,19 @@ async function startTalkbackBot() {
       });
       console.log(`📻 ${cfg.name} พร้อมในห้อง: ${channel.name} (Leader mute/unmute เองได้)`);
 
-      const player = createAudioPlayer({ behaviors: { noSubscriber: NoSubscriberBehavior.Play } });
-      player.on("error", (err) => console.error("TalkbackBot player error:", err.message));
+      const player = createAudioPlayer({
+        behaviors: { noSubscriber: NoSubscriberBehavior.Play },
+      });
+      player.on("error", (err) => console.error("TalkbackBot PLAYER ERROR:", err));
 
       const tbStream = new ContinuousPCM();
       player.play(createAudioResource(tbStream, { inputType: StreamType.Raw }));
       connection.subscribe(player);
 
+      // ทุกเสียงหัวหน้า/รองที่ส่งกลับมา → เล่นในห้อง Leader Room
       talkbackBus.on("pcm", (chunk) => tbStream.feed(chunk));
     } catch (err) {
-      console.error(`${cfg.name}: ${err.message}`);
+      console.error(`⛔ ${cfg.name}: ${err.message}`);
       console.error("   👉 เชิญ TalkbackBot เข้าเซิร์ฟเวอร์ก่อน (OAuth2 > bot + Connect/Speak/View Channel)");
     }
   });
@@ -554,12 +519,13 @@ function validateConfig() {
     problems.push("ยังไม่ได้ใส่ channelId ของ Leader Room ใน config.js");
   if (!config.leader.token) problems.push("ยังไม่ได้ตั้ง LEADER_TOKEN ใน .env");
 
-  const seenTokens = new Map();
+  const seenTokens = new Map(); // token -> ชื่อบอท (กัน token ซ้ำ)
   const register = (name, token) => {
     if (!token) return;
     if (seenTokens.has(token)) {
       problems.push(
-        `token ซ้ำกัน: ${name} ใช้ token เดียวกับ ${seenTokens.get(token)} — บอท 1 ตัวอยู่ได้ห้องเดียว ต้องใช้คนละ token`
+        `token ซ้ำกัน: ${name} ใช้ token เดียวกับ ${seenTokens.get(name) || seenTokens.get(token)} ` +
+          `— บอท 1 ตัวอยู่ได้ห้องเดียว ต้องใช้คนละ token`
       );
     } else {
       seenTokens.set(token, name);
@@ -571,7 +537,8 @@ function validateConfig() {
   for (const spk of config.speakers) {
     if (isPlaceholder(spk.channelId))
       problems.push(`ยังไม่ได้ใส่ channelId ของ ${spk.name} ใน config.js`);
-    if (!spk.token) problems.push(`ยังไม่ได้ตั้ง token ของ ${spk.name} ใน .env (จะถูกข้ามตอนรัน)`);
+    if (!spk.token)
+      problems.push(`ยังไม่ได้ตั้ง token ของ ${spk.name} ใน .env (จะถูกข้ามตอนรัน)`);
     register(spk.name, spk.token);
   }
 
@@ -582,32 +549,28 @@ function validateConfig() {
 //  BOOT
 // ===========================================================================
 (async () => {
-  // จำนวนบอททั้งหมดที่ตั้งใจจะออนไลน์ — ให้เว็บโชว์ x/total
-  const totalBots = 1 + (config.talkbackBot && config.talkbackBot.token ? 1 : 0) + config.speakers.filter((s) => s.token).length;
-  emit("boot", { totalBots, totalRooms: config.speakers.length });
-  console.log(`🚀 เริ่มระบบ — บอททั้งหมด ${totalBots} ตัว, ห้องกระจายเสียง ${config.speakers.length} ห้อง`);
+  console.log("🚀 เริ่มระบบ Leader Broadcast...");
 
-  // ค่าเริ่มต้น volume talkback ทุกห้อง = 100%
+  // ค่าเริ่มต้น volume talkback ทุกห้อง = 100% (ปรับสดด้วย /setvoltb ได้)
   for (const spk of config.speakers) roomVolume.set(spk.name, spk.volume ?? 1);
 
   const problems = validateConfig();
   if (problems.length) {
-    console.error("พบปัญหาในการตั้งค่า กรุณาแก้ก่อนรัน:");
+    console.error("\n❌ พบปัญหาในการตั้งค่า กรุณาแก้ก่อนรัน:");
     for (const p of problems) console.error("   • " + p);
+    // ถ้า Leader ใช้ไม่ได้เลย หยุดทันที; ถ้าแค่ speaker บางตัวขาด ปล่อยรันต่อ
     const fatal = problems.some((p) => p.includes("Leader") || p.includes("LEADER_TOKEN"));
     if (fatal) {
-      console.error("หยุดทำงาน (ปัญหาฝั่ง Leader)");
-      emit("fatal", { reason: "leader-config" });
+      console.error("\n⛔ หยุดทำงาน (ปัญหาฝั่ง Leader)\n");
       process.exit(1);
     }
-    console.warn("จะรันต่อโดยข้ามบอทที่ตั้งค่าไม่ครบ");
+    console.warn("\n⚠️  จะรันต่อโดยข้ามบอทที่ตั้งค่าไม่ครบ\n");
   }
 
   try {
     await startLeader();
   } catch (err) {
-    console.error("LeaderBot เริ่มไม่สำเร็จ:", err.message);
-    emit("fatal", { reason: "leader-start" });
+    console.error("⛔ LeaderBot เริ่มไม่สำเร็จ:", err.message);
     process.exit(1);
   }
 
@@ -615,23 +578,22 @@ function validateConfig() {
     try {
       await startSpeaker(spk);
     } catch (err) {
-      console.error(`${spk.name} เริ่มไม่สำเร็จ:`, err.message);
+      // บอทตัวเดียวพังไม่ควรล้มทั้งระบบ
+      console.error(`⛔ ${spk.name} เริ่มไม่สำเร็จ:`, err.message);
     }
   }
 
   try {
     await startTalkbackBot();
   } catch (err) {
-    console.error("TalkbackBot เริ่มไม่สำเร็จ:", err.message);
+    console.error("⛔ TalkbackBot เริ่มไม่สำเร็จ:", err.message);
   }
 
-  emit("ready", {});
-  process.stdout.write(
-    `[${ts()}] ` +
-      "------------------------------------------------------------\n" +
-      `[${ts()}] ✅ พร้อมทำงาน — บอททั้งหมดออนไลน์แล้ว พูดในห้อง Leader Room ได้เลย\n` +
-      `[${ts()}] ------------------------------------------------------------\n`
-  );
+  console.log("\n============================================================");
+  console.log("   ✅ กำลังทำงาน — บอททั้งหมดออนไลน์แล้ว");
+  console.log("   พูดในห้อง Leader Room ได้เลย");
+  console.log("   ❌ ปิดโปรแกรม: กดปุ่ม X มุมขวาบนของหน้าต่างนี้");
+  console.log("============================================================\n");
 })();
 
 // ลบ lock เมื่อปิดโปรแกรม
@@ -644,37 +606,3 @@ function releaseLock() {
 }
 process.on("exit", releaseLock);
 process.on("SIGINT", () => process.exit(0));
-
-// --- รับคำสั่งผ่าน stdin (เปิดเฉพาะตอนถูก spawn เป็น child เช่นจาก web dashboard) ---
-//  คำสั่ง: "setvol <room> <value>" | "setvolall <value>"
-//  ถ้า stdin ปิด (เว็บ/พาเรนต์ตาย) → ปิดตัวเองด้วย กันบอทค้างเป็น orphan
-if (CHILD) {
-  const clamp = (v) => Math.max(0, Math.min(VOL_MAX, parseFloat(v)));
-  let buf = "";
-  process.stdin.on("data", (d) => {
-    buf += d.toString();
-    let idx;
-    while ((idx = buf.indexOf("\n")) >= 0) {
-      const line = buf.slice(0, idx).trim();
-      buf = buf.slice(idx + 1);
-      if (!line) continue;
-      const [cmd, a, b] = line.split(/\s+/);
-      if (cmd === "setvol" && a && b !== undefined) {
-        if (config.speakers.find((s) => s.name === a)) {
-          roomVolume.set(a, clamp(b));
-          const pct = Math.round(roomVolume.get(a) * 100);
-          console.log(`🔊 ${a} = ${pct}%`);
-          emit("vol", { room: a, pct });
-        }
-      } else if (cmd === "setvolall" && a !== undefined) {
-        const v = clamp(a);
-        for (const s of config.speakers) roomVolume.set(s.name, v);
-        console.log(`🔊 ทุกห้อง = ${Math.round(v * 100)}%`);
-        emit("volall", { pct: Math.round(v * 100) });
-      }
-    }
-  });
-  process.stdin.on("end", () => process.exit(0));
-  process.stdin.on("close", () => process.exit(0));
-  process.stdin.resume();
-}
