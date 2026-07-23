@@ -1,6 +1,6 @@
 # Deploy บน Oracle Cloud (Always Free) — ฟรีตลอดชีพ
 
-> รัน DiscordSchool บน VM ฟรีของ Oracle (รองรับ UDP + รันยาว 24 ชม. ได้)
+> รัน GuildWarBroadcast บน VM ฟรีของ Oracle (รองรับ UDP + รันยาว 24 ชม. ได้)
 > เหมาะเมื่อไม่อยากเปิดคอมตัวเอง • Always Free = ไม่เสียเงินแม้รันตลอด
 
 ---
@@ -46,15 +46,15 @@ node -v   # ควรขึ้น v20.x
 **วิธี A — scp (จากเครื่อง Windows, ห้ามรวม node_modules):**
 ```bash
 # รันบนเครื่องตัวเอง (PowerShell ในโฟลเดอร์โปรเจกต์)
-scp -i your-key.key relay.js config.js .env package.json package-lock.json build.js ubuntu@<PUBLIC_IP>:~/discordschool/
+scp -i your-key.key relay.js config.js .env package.json package-lock.json build.js ubuntu@<PUBLIC_IP>:~/guild-war-broadcast/
 ```
-*(สร้างโฟลเดอร์ก่อน: บน VM พิมพ์ `mkdir -p ~/discordschool`)*
+*(สร้างโฟลเดอร์ก่อน: บน VM พิมพ์ `mkdir -p ~/guild-war-broadcast`)*
 
 **วิธี B — git** (ถ้าโค้ดอยู่ใน private repo): `git clone` แล้วเอา `.env` มาวางทีหลัง (อย่า push token ขึ้น repo สาธารณะ!)
 
 ### 6. ติดตั้ง dependencies (ได้ binary Linux อัตโนมัติ)
 ```bash
-cd ~/discordschool
+cd ~/guild-war-broadcast
 npm install --omit=dev    # ไม่ต้องลง caxa (ใช้ build exe เท่านั้น)
 ```
 
@@ -67,22 +67,22 @@ npm start
 ### 8. รันค้าง 24 ชม. ด้วย pm2
 ```bash
 sudo npm install -g pm2
-pm2 start relay.js --name discordschool
+pm2 start relay.js --name guild-war-broadcast
 pm2 save
 pm2 startup     # ก๊อปคำสั่งที่มันบอกมารันต่อ (ให้รันเองตอน VM reboot)
 ```
 คำสั่งที่ใช้บ่อย:
 ```bash
-pm2 logs discordschool     # ดู log สด
-pm2 restart discordschool  # รีสตาร์ท (หลังแก้ config)
-pm2 stop discordschool     # หยุด
+pm2 logs guild-war-broadcast     # ดู log สด
+pm2 restart guild-war-broadcast  # รีสตาร์ท (หลังแก้ config)
+pm2 stop guild-war-broadcast     # หยุด
 pm2 status                 # ดูสถานะ
 ```
 
 ### 9. แก้ config ภายหลัง
 ```bash
-nano ~/discordschool/config.js   # หรือ .env
-pm2 restart discordschool
+nano ~/guild-war-broadcast/config.js   # หรือ .env
+pm2 restart guild-war-broadcast
 ```
 
 ---

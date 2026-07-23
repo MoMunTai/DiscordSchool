@@ -1,13 +1,16 @@
-# Web Dashboard — คุมบอทผ่าน browser
+# Web Dashboard — Guild War Broadcast (by KongPlayCh)
 
-คุม DiscordSchool ผ่านหน้าเว็บ: เริ่ม/หยุด/รีสตาร์ท + ปรับ volume + ดู log สด
+คุมระบบผ่านหน้าเว็บ: เริ่ม/หยุด/รีสตาร์ท + ปรับ volume + ดู log สด + ไฟ ON AIR
 (ไม่ต้อง SSH / ไม่ต้องเปิด console) — ใช้ได้ทั้งบนคอมและบน cloud (Oracle)
 
 ## รัน
 ```
 npm run web
 ```
-เปิด browser → **http://localhost:3000**
+เปิด browser → **http://localhost:4000**
+
+> ตัว `.exe` (`npm run build`) ใช้ Dashboard นี้เป็นหน้าหลัก — เปิดแล้ว start web + เปิด browser + บอทออนไลน์อัตโนมัติ
+> สั่ง autostart+เปิด browser ในโหมด dev ได้ด้วย: `AUTO_START=1 AUTO_OPEN=1 npm run web`
 
 ตัวเลือก (env):
 - `PORT=8080` — เปลี่ยนพอร์ต
@@ -15,7 +18,7 @@ npm run web
 
 ตัวอย่างบน Linux/cloud:
 ```
-WEB_PASSWORD=mysecret PORT=3000 npm run web
+WEB_PASSWORD=mysecret PORT=4000 npm run web
 ```
 
 ## โครงสร้าง
@@ -37,10 +40,10 @@ web/
 
 ## ใช้บน cloud (Oracle) — เปิดให้เข้าจากภายนอก
 1. รัน `WEB_PASSWORD=xxxx npm run web` (ตั้งรหัสเสมอ!)
-2. เปิด **inbound port 3000** ใน Oracle:
-   - Security List ของ VCN → Add Ingress Rule → TCP port 3000
+2. เปิด **inbound port 4000** ใน Oracle:
+   - Security List ของ VCN → Add Ingress Rule → TCP port 4000
    - (หรือใช้ Caddy ทำ HTTPS + reverse proxy แล้วเปิดแค่ 443)
-3. เข้าผ่าน `http://<VM-PUBLIC-IP>:3000`
+3. เข้าผ่าน `http://<VM-PUBLIC-IP>:4000`
 
 > ⚠️ ถ้าเปิด public **ต้องตั้ง WEB_PASSWORD** เสมอ กันคนอื่นมาคุมบอท
 

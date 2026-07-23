@@ -19,7 +19,7 @@ icon.ico
 
 # ===== Logs =====
 *.log
-discordschool-bot.log
+guildwar-broadcast.log
 
 # ===== OS / editor =====
 .DS_Store

@@ -1,8 +1,8 @@
 {
-  "name": "guildwarmanage",
+  "name": "guild-war-broadcast",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Guild War Broadcast by KongPlayCh — Discord realtime voice broadcast + talkback",
+  "main": "relay.js",
   "scripts": {
     "start": "node relay.js",
     "web": "node web/server.js",
