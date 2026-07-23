@@ -7,9 +7,10 @@
 ```
 npm run web
 ```
-เปิด browser → **http://localhost:4000**
+เปิด browser → **http://localhost:43210**
+(ถ้า port ไม่ว่าง โปรแกรมขยับเป็น 43211, 43212, ... ให้เอง — ดู port จริงใน console)
 
-> ตัว `.exe` (`npm run build`) ใช้ Dashboard นี้เป็นหน้าหลัก — เปิดแล้ว start web + เปิด browser + บอทออนไลน์อัตโนมัติ
+> ตัว `.exe` (`npm run build`) ใช้ Dashboard นี้เป็นหน้าหลัก — เปิดแล้ว start web + เปิด browser (บอท**ไม่**ออนไลน์เอง — เลือกห้องแล้วกด ▶ เริ่ม)
 > สั่ง autostart+เปิด browser ในโหมด dev ได้ด้วย: `AUTO_START=1 AUTO_OPEN=1 npm run web`
 
 ตัวเลือก (env):
@@ -18,7 +19,7 @@ npm run web
 
 ตัวอย่างบน Linux/cloud:
 ```
-WEB_PASSWORD=mysecret PORT=4000 npm run web
+WEB_PASSWORD=mysecret PORT=43210 npm run web
 ```
 
 ## โครงสร้าง
@@ -35,15 +36,16 @@ web/
 |---|---|
 | สถานะ | ออนไลน์/หยุด, จำนวนบอท, ห้องพร้อม (อัปเดตสด) |
 | ▶ เริ่ม / ■ หยุด / ↻ รีสตาร์ท | คุมบอท |
-| ปรับเสียง | ตั้งทุกห้องพร้อมกัน หรือรายห้อง (0–2.0) |
+| 🏠 ห้องที่ใช้งาน | toggle เปิด/ปิดบอทรายห้อง (A1–A8, B1–B8, C1–C4) ก่อนกดเริ่ม — จำค่าไว้ใน `rooms.json`, มีผลตอนเริ่ม/รีสตาร์ท |
+| ปรับเสียง | ตั้งทุกห้องพร้อมกัน หรือรายห้อง (0–2.0) — โชว์เฉพาะห้องที่เปิดใช้ |
 | Log สด | สตรีมผ่าน WebSocket |
 
 ## ใช้บน cloud (Oracle) — เปิดให้เข้าจากภายนอก
 1. รัน `WEB_PASSWORD=xxxx npm run web` (ตั้งรหัสเสมอ!)
-2. เปิด **inbound port 4000** ใน Oracle:
-   - Security List ของ VCN → Add Ingress Rule → TCP port 4000
+2. เปิด **inbound port 43210** ใน Oracle:
+   - Security List ของ VCN → Add Ingress Rule → TCP port 43210
    - (หรือใช้ Caddy ทำ HTTPS + reverse proxy แล้วเปิดแค่ 443)
-3. เข้าผ่าน `http://<VM-PUBLIC-IP>:4000`
+3. เข้าผ่าน `http://<VM-PUBLIC-IP>:43210`
 
 > ⚠️ ถ้าเปิด public **ต้องตั้ง WEB_PASSWORD** เสมอ กันคนอื่นมาคุมบอท
 

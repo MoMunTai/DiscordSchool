@@ -104,6 +104,22 @@ try {
 }
 
 // ---------------------------------------------------------------------------
+//  เลือกเฉพาะห้องที่เปิดใช้ — web dashboard ส่งรายชื่อมาทาง env: GWB_ROOMS="A1Bot,B2Bot"
+//  ไม่ได้ตั้ง GWB_ROOMS = ใช้ทุกห้องใน config ตามเดิม (เช่นรันตรงด้วย npm start)
+// ---------------------------------------------------------------------------
+if (process.env.GWB_ROOMS !== undefined) {
+  const want = new Set(process.env.GWB_ROOMS.split(",").map((s) => s.trim()).filter(Boolean));
+  const total = (config.speakers || []).length;
+  config.speakers = (config.speakers || []).filter((s) => want.has(s.name));
+  console.log(`🎛  เปิดใช้ ${config.speakers.length}/${total} ห้อง: ${config.speakers.map((s) => s.name).join(", ") || "-"}`);
+  if (!config.speakers.length) {
+    console.error("ไม่ได้เลือกห้องเลย — เปิดอย่างน้อย 1 ห้องบนหน้าเว็บก่อนกดเริ่ม");
+    emit("fatal", { reason: "no-rooms" });
+    process.exit(1);
+  }
+}
+
+// ---------------------------------------------------------------------------
 //  Audio bus กลาง: ส่งเสียงในรูปแบบ PCM (48kHz, stereo, signed 16-bit LE)
 //  LeaderBot เป็นคน emit, ทุก SpeakerBot เป็นคนฟัง
 // ---------------------------------------------------------------------------
@@ -239,7 +255,8 @@ async function setupVolumeCommands(client, guild) {
           description: "ห้อง",
           type: 3,
           required: true,
-          choices: config.speakers.slice(0, 25).map((s) => ({ name: s.name, value: s.name })),
+          // โชว์ "ชื่อห้อง" (label) ให้คนเลือก แต่ค่าที่ส่งจริงยังเป็นชื่อบอท (คีย์ภายใน)
+          choices: config.speakers.slice(0, 25).map((s) => ({ name: s.label || s.name, value: s.name })),
         },
         {
           name: "value",
@@ -278,20 +295,25 @@ async function setupVolumeCommands(client, guild) {
 
   client.on("interactionCreate", async (i) => {
     if (!i.isChatInputCommand()) return;
+    // กันคำสั่งทะลุข้ามดิส: token ชุดเดียวกันอาจรันพร้อมกันหลายดิส (คนละ instance)
+    // ทุก instance ได้รับ event เหมือนกันหมด → สนใจเฉพาะดิสของห้อง Leader ตัวเองเท่านั้น
+    if (i.guildId !== guild.id) return;
 
     if (i.commandName === "setvoltb") {
       const room = i.options.getString("room");
       let value = i.options.getNumber("value");
-      if (!config.speakers.find((s) => s.name === room)) {
+      const sp = config.speakers.find((s) => s.name === room);
+      if (!sp) {
         return i.reply({ content: `❌ ไม่พบห้อง ${room}`, flags: MessageFlags.Ephemeral });
       }
+      const label = sp.label || sp.name;
       value = Math.max(0, Math.min(VOL_MAX, value));
       roomVolume.set(room, value);
       const pct = Math.round(value * 100);
-      console.log(`🔊 ตั้งเสียง talkback: ${room} = ${pct}% (โดย ${i.user.tag})`);
+      console.log(`🔊 ตั้งเสียง talkback: ${label} = ${pct}% (โดย ${i.user.tag})`);
       emit("vol", { room, pct });
       return i.reply({
-        content: `✅ ${room} → **${pct}%**${value === 0 ? " (ปิดเสียงห้องนี้)" : ""}`,
+        content: `✅ ${label} → **${pct}%**${value === 0 ? " (ปิดเสียงห้องนี้)" : ""}`,
         flags: MessageFlags.Ephemeral,
       });
     }
@@ -312,7 +334,7 @@ async function setupVolumeCommands(client, guild) {
     if (i.commandName === "voltb") {
       const lines = config.speakers.map((s) => {
         const pct = Math.round((roomVolume.get(s.name) ?? 1) * 100);
-        return `• ${s.name}: **${pct}%**${pct === 0 ? " (ปิด)" : ""}`;
+        return `• ${s.label || s.name}: **${pct}%**${pct === 0 ? " (ปิด)" : ""}`;
       });
       return i.reply({
         content: "**ระดับเสียง Talkback ปัจจุบัน**\n" + lines.join("\n"),

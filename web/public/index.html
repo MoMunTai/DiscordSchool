@@ -46,6 +46,13 @@
   button.stop { background:var(--off); } button.warn { background:var(--warn); color:#1a1a1a; } button.ghost { background:#2a3046; }
   button.sm { padding:7px 12px; font-size:13px; }
 
+  /* toggle เปิด/ปิดห้อง */
+  .room-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(88px,1fr)); gap:8px; margin-top:12px; }
+  .room-toggle { cursor:pointer; user-select:none; text-align:center; font-weight:700; font-size:14px;
+    padding:10px 8px; border-radius:9px; border:1px solid var(--line); background:var(--bg); color:var(--mut); transition:.15s; }
+  .room-toggle:hover { filter:brightness(1.2); }
+  .room-toggle.on { background:linear-gradient(135deg,var(--acc),var(--acc2)); color:#fff; border-color:transparent; box-shadow:0 3px 12px rgba(88,101,242,.35); }
+
   input[type=number] { width:74px; background:var(--bg); color:var(--txt); border:1px solid var(--line); border-radius:7px; padding:7px; font-size:14px; }
   .vol-room { display:flex; align-items:center; gap:8px; background:var(--bg); padding:9px 11px; border-radius:9px; border:1px solid var(--line); }
   .vol-room .nm { flex:1; font-weight:600; font-size:14px; }
@@ -87,6 +94,15 @@
   </div>
 
   <div class="card">
+    <div class="row spread">
+      <h2 style="margin:0">🏠 ห้องที่ใช้งาน <span id="roomCount" style="text-transform:none"></span></h2>
+      <div class="row" id="groupBtns"></div>
+    </div>
+    <div class="hint" style="margin-top:8px">คลิกห้องเพื่อเปิด/ปิดบอทห้องนั้น • การเปลี่ยนมีผลตอนกด ▶ เริ่ม หรือ ↻ รีสตาร์ท</div>
+    <div class="room-grid" id="roomGrid"></div>
+  </div>
+
+  <div class="card">
     <h2>🔊 ปรับเสียง Talkback (ห้อง → Leader)</h2>
     <div class="row">
       <label>ทุกห้องพร้อมกัน:</label>
@@ -123,20 +139,74 @@ async function act(a) { try { await api(a, "POST"); } catch(e){} }
 async function setRoom(room, value) { try { await api("volume","POST",{room,value:parseFloat(value)}); } catch(e){} }
 async function setAll() { try { await api("volume","POST",{all:parseFloat(document.getElementById("volAll").value)}); } catch(e){} }
 
-function renderRooms(rooms) {
-  const g = document.getElementById("volGrid");
-  if (g.dataset.done === "1") return;
+// ---- เปิด/ปิดห้อง ----
+// allRooms = [{name, label}] — name คือคีย์ภายใน (ชื่อบอท), label คือชื่อห้องที่ผู้ใช้เห็น
+let allRooms = [], enabledSet = new Set();
+
+function setRoomState(rooms, enabled) {
+  // รองรับทั้งรูปแบบเก่า (string) และใหม่ ({name,label})
+  allRooms = (rooms || []).map(r => typeof r === "string" ? { name: r, label: r.replace('Bot','') } : r);
+  enabledSet = new Set(enabled || []);
+  renderGroupBtns();
+  renderToggles();
+  renderVolGrid();
+}
+// ปุ่มกลุ่มสร้างจากอักษรตัวแรกของ label อัตโนมัติ — ดิสไหนมีกลุ่ม D ก็จะมีปุ่ม D เอง
+function renderGroupBtns() {
+  const box = document.getElementById("groupBtns");
+  box.innerHTML = "";
+  const groups = [...new Set(allRooms.map(r => r.label[0]))];
+  const mk = (text, prefix) => {
+    const b = document.createElement("button");
+    b.className = "ghost sm";
+    b.textContent = text;
+    b.onclick = () => toggleGroup(prefix);
+    box.appendChild(b);
+  };
+  mk("ทั้งหมด", "");
+  groups.forEach(g => mk("กลุ่ม " + g, g));
+}
+function renderToggles() {
+  const g = document.getElementById("roomGrid");
   g.innerHTML = "";
-  rooms.forEach(r => {
-    const name = r.replace('Bot','');
+  allRooms.forEach(r => {
     const d = document.createElement("div");
-    d.className = "vol-room";
-    d.innerHTML = `<span class="nm">${name}</span>
-      <input type="number" value="1.0" step="0.1" min="0" max="2" id="v_${r}" />
-      <button class="sm" onclick="setRoom('${r}', document.getElementById('v_${r}').value)">ตั้ง</button>`;
+    d.className = "room-toggle" + (enabledSet.has(r.name) ? " on" : "");
+    d.textContent = r.label;
+    d.onclick = () => toggleRoom(r.name);
     g.appendChild(d);
   });
-  if (rooms.length) g.dataset.done = "1";
+  document.getElementById("roomCount").textContent = `— ใช้ ${enabledSet.size}/${allRooms.length} ห้อง`;
+}
+async function saveRoomsApi() {
+  try { await api("rooms","POST",{enabled:[...enabledSet]}); } catch(e){}
+}
+function toggleRoom(name) {
+  enabledSet.has(name) ? enabledSet.delete(name) : enabledSet.add(name);
+  renderToggles(); renderVolGrid(); saveRoomsApi();
+}
+// ปุ่มกลุ่ม: ถ้าห้องในกลุ่มเปิดครบแล้ว → ปิดทั้งกลุ่ม, ไม่ครบ → เปิดทั้งกลุ่ม ('' = ทุกห้อง)
+function toggleGroup(prefix) {
+  const rooms = allRooms.filter(r => !prefix || r.label.startsWith(prefix));
+  const allOn = rooms.length && rooms.every(r => enabledSet.has(r.name));
+  rooms.forEach(r => allOn ? enabledSet.delete(r.name) : enabledSet.add(r.name));
+  renderToggles(); renderVolGrid(); saveRoomsApi();
+}
+
+// ---- volume grid: โชว์เฉพาะห้องที่เปิดใช้ (คงค่าที่พิมพ์ไว้ตอน re-render) ----
+function renderVolGrid() {
+  const g = document.getElementById("volGrid");
+  const prev = {};
+  g.querySelectorAll("input").forEach(i => prev[i.id] = i.value);
+  g.innerHTML = "";
+  allRooms.filter(r => enabledSet.has(r.name)).forEach(r => {
+    const d = document.createElement("div");
+    d.className = "vol-room";
+    d.innerHTML = `<span class="nm">${r.label}</span>
+      <input type="number" value="${prev['v_'+r.name] || '1.0'}" step="0.1" min="0" max="2" id="v_${r.name}" />
+      <button class="sm" onclick="setRoom('${r.name}', document.getElementById('v_${r.name}').value)">ตั้ง</button>`;
+    g.appendChild(d);
+  });
 }
 
 function applyStatus(s) {
@@ -175,15 +245,16 @@ function connect() {
   const ws = new WebSocket(`${proto}://${location.host}/?pw=${encodeURIComponent(pw)}`);
   ws.onmessage = (ev) => {
     const m = JSON.parse(ev.data);
-    if (m.type === "init") { renderRooms(m.rooms||[]); applyStatus(m.stats||{}); (m.logs||[]).forEach(addLog); }
+    if (m.type === "init") { setRoomState(m.rooms||[], m.enabled||[]); applyStatus(m.stats||{}); (m.logs||[]).forEach(addLog); }
     else if (m.type === "log") addLog(m.line);
     else if (m.type === "status") applyStatus(m.stats||{});
+    else if (m.type === "rooms") { enabledSet = new Set(m.enabled||[]); renderToggles(); renderVolGrid(); }
   };
   ws.onclose = () => setTimeout(connect, 2000);
   ws.onerror = () => ws.close();
 }
 
-api("status").then(d => { renderRooms(d.rooms||[]); applyStatus(d.stats||{}); connect(); }).catch(()=>{ connect(); });
+api("status").then(d => { setRoomState(d.rooms||[], d.enabled||[]); applyStatus(d.stats||{}); connect(); }).catch(()=>{ connect(); });
 </script>
 </body>
 </html>

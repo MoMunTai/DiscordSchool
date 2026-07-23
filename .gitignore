@@ -12,10 +12,12 @@ dist-lock/
 dist123/
 *.exe
 locked.flag
-icon.ico
 
 # ===== Backup / archive =====
 *.zip
+
+# ===== สถานะรันไทม์ (การเลือกห้องบนหน้าเว็บ) =====
+rooms.json
 
 # ===== Logs =====
 *.log

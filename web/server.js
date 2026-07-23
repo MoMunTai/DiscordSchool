@@ -18,27 +18,52 @@ const RELAY = path.join(ROOT, "relay.js");
 // ไม่งั้นค่าใน .env ยังไม่เข้า process.env ตอนคำนวณ → ใช้ค่า default เสมอ
 require("dotenv").config({ path: path.join(ROOT, ".env") });
 
-const PORT = process.env.PORT || 4000;
+// port เริ่มต้น 43210 (เลขไม่ค่อยมีใครใช้ ลดโอกาสชน) — ถ้าไม่ว่างจะขยับหาที่ว่างเองอัตโนมัติ
+// ตั้งเองได้ด้วย env: PORT=8080 (ก็ยัง fallback ให้ถ้าชน)
+const BASE_PORT = Number(process.env.PORT) || 43210;
 const PASSWORD = process.env.WEB_PASSWORD || ""; // ว่าง = ไม่ต้องใส่รหัส
 
-// PACKAGED = ถูก build เป็น .exe (มี locked.flag ฝังมา) → เปิดมาแล้วเริ่มบอท + เปิด browser อัตโนมัติ
+// PACKAGED = ถูก build เป็น .exe (มี locked.flag ฝังมา) → เปิด browser ให้อัตโนมัติ
+// บอท "ไม่" ออนไลน์เอง — ให้ผู้ใช้เลือกห้องบนหน้าเว็บก่อน แล้วกด ▶ เริ่ม เอง
+// (โหมด dev บังคับ autostart ได้ด้วย AUTO_START=1)
 const PACKAGED = fs.existsSync(path.join(ROOT, "locked.flag"));
-const AUTO_START = PACKAGED || process.env.AUTO_START === "1";
+const AUTO_START = process.env.AUTO_START === "1";
 const AUTO_OPEN = PACKAGED || process.env.AUTO_OPEN === "1";
 
-// อ่านการตั้งค่าจาก config (ไว้ทำปุ่ม volume + นับ total)
+// อ่านการตั้งค่าจาก config (ไว้ทำปุ่ม volume + toggle เปิด/ปิดห้อง + นับ total)
+// roomList = [{name, label}] — name คือคีย์ภายใน (ชื่อบอท), label คือชื่อห้องที่โชว์ให้ผู้ใช้
+let roomList = [];
 let roomNames = [];
-let totalBots = 0;
+let speakerHasToken = {};
+let hasTalkback = false;
 try {
   const cfg = require(path.join(ROOT, "config.js"));
-  roomNames = (cfg.speakers || []).map((s) => s.name);
-  totalBots = 1 + (cfg.talkbackBot && cfg.talkbackBot.token ? 1 : 0) + (cfg.speakers || []).filter((s) => s.token).length;
+  roomList = (cfg.speakers || []).map((s) => ({ name: s.name, label: s.label || s.name.replace(/Bot$/, "") }));
+  roomNames = roomList.map((r) => r.name);
+  for (const s of cfg.speakers || []) speakerHasToken[s.name] = !!s.token;
+  hasTalkback = !!(cfg.talkbackBot && cfg.talkbackBot.token);
 } catch (e) {
   console.error("⚠️  โหลด config.js ไม่ได้:", e.message);
 }
 
+// ห้องที่เปิดใช้ — เลือกบนหน้าเว็บก่อนกดเริ่ม, จำค่าไว้ในไฟล์ rooms.json (มีผลตอนเริ่ม/รีสตาร์ทบอท)
+const ROOMS_FILE = path.join(ROOT, "rooms.json");
+let enabledRooms = new Set(roomNames); // ค่าเริ่มต้น = เปิดทุกห้อง
+try {
+  const saved = JSON.parse(fs.readFileSync(ROOMS_FILE, "utf8"));
+  if (Array.isArray(saved)) enabledRooms = new Set(saved.filter((n) => roomNames.includes(n)));
+} catch {} // ไม่มีไฟล์ = ใช้ค่าเริ่มต้น
+function saveRooms() {
+  try {
+    fs.writeFileSync(ROOMS_FILE, JSON.stringify([...enabledRooms]));
+  } catch (e) {
+    console.error("⚠️  บันทึก rooms.json ไม่ได้:", e.message);
+  }
+}
+
 let child = null;
-const baseStats = () => ({ running: false, bots: 0, rooms: 0, ready: false, air: false, totalBots, totalRooms: roomNames.length });
+const totalBots = () => 1 + (hasTalkback ? 1 : 0) + [...enabledRooms].filter((n) => speakerHasToken[n]).length;
+const baseStats = () => ({ running: false, bots: 0, rooms: 0, ready: false, air: false, totalBots: totalBots(), totalRooms: enabledRooms.size });
 let stats = baseStats();
 const logs = [];
 const MAX_LOGS = 600;
@@ -128,12 +153,17 @@ function makeLineReader() {
 
 function start() {
   if (child) return;
+  if (!enabledRooms.size) {
+    pushLog("[เว็บ] ⛔ ยังไม่ได้เลือกห้อง — เปิดอย่างน้อย 1 ห้องก่อนกดเริ่ม");
+    sendStatus();
+    return;
+  }
   stats = baseStats();
   stats.running = true;
   logs.length = 0;
   child = spawn(process.execPath, [RELAY], {
     cwd: ROOT,
-    env: { ...process.env, GWB_DIR: ROOT },
+    env: { ...process.env, GWB_DIR: ROOT, GWB_ROOMS: [...enabledRooms].join(",") },
   });
   child.stdout.on("data", makeLineReader());
   child.stderr.on("data", makeLineReader());
@@ -192,7 +222,31 @@ const server = http.createServer((req, res) => {
     if (!checkAuth(req)) return send(res, 401, { error: "unauthorized" });
 
     if (url.pathname === "/api/status")
-      return send(res, 200, { stats: { ...stats, running: !!child }, rooms: roomNames, needPw: !!PASSWORD });
+      return send(res, 200, { stats: { ...stats, running: !!child }, rooms: roomList, enabled: [...enabledRooms], needPw: !!PASSWORD });
+    // เลือกห้องที่เปิดใช้ (มีผลตอนเริ่ม/รีสตาร์ทบอทครั้งถัดไป)
+    if (req.method === "POST" && url.pathname === "/api/rooms") {
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        try {
+          const { enabled } = JSON.parse(body || "{}");
+          if (!Array.isArray(enabled)) return send(res, 400, { error: "bad request" });
+          enabledRooms = new Set(enabled.filter((n) => roomNames.includes(n)));
+          saveRooms();
+          if (!child) {
+            // ยังไม่รัน → อัปเดตตัวเลข total ทันที (ตอนรันอยู่ ตัวเลขมาจาก boot event ของ relay)
+            stats.totalBots = totalBots();
+            stats.totalRooms = enabledRooms.size;
+          }
+          broadcast({ type: "rooms", enabled: [...enabledRooms] });
+          sendStatus();
+          send(res, 200, { ok: true, enabled: [...enabledRooms] });
+        } catch {
+          send(res, 400, { error: "bad request" });
+        }
+      });
+      return;
+    }
     if (req.method === "POST" && url.pathname === "/api/start") {
       start();
       return send(res, 200, { ok: true });
@@ -228,20 +282,44 @@ const server = http.createServer((req, res) => {
 });
 
 const wss = new WebSocketServer({ server });
+// WebSocketServer จะรับ error ของ http server มา re-emit — ต้องดักไว้ ไม่งั้น EADDRINUSE
+// จะ throw ที่นี่ก่อนตัว fallback หา port ใหม่ (server.on("error") ข้างล่าง) ได้ทำงาน
+wss.on("error", () => {});
 wss.on("connection", (ws, req) => {
   const url = new URL(req.url, "http://x");
   if (PASSWORD && url.searchParams.get("pw") !== PASSWORD) return ws.close();
   clients.add(ws);
-  ws.send(JSON.stringify({ type: "init", logs, stats: { ...stats, running: !!child }, rooms: roomNames }));
+  ws.send(JSON.stringify({ type: "init", logs, stats: { ...stats, running: !!child }, rooms: roomList, enabled: [...enabledRooms] }));
   ws.on("close", () => clients.delete(ws));
 });
 
-server.listen(PORT, () => {
-  const url = `http://localhost:${PORT}`;
+// ---------------------------------------------------------------------------
+//  เปิด server แบบหา port อัตโนมัติ: เริ่มที่ BASE_PORT ถ้าไม่ว่างขยับทีละ 1 (สูงสุด 20 ครั้ง)
+//  ผู้ใช้ไม่ต้องตั้งค่าอะไร — browser จะถูกเปิดไปที่ port ที่ได้จริงเสมอ
+// ---------------------------------------------------------------------------
+let tryPort = BASE_PORT;
+let portTries = 0;
+
+server.on("error", (e) => {
+  if (e.code === "EADDRINUSE" && portTries < 20) {
+    portTries++;
+    console.log(`⚠️  port ${tryPort} ไม่ว่าง → ลอง ${tryPort + 1}`);
+    tryPort++;
+    setTimeout(() => server.listen(tryPort), 100);
+  } else {
+    console.error("⛔ เปิด web server ไม่ได้:", e.message);
+    process.exit(1);
+  }
+});
+
+server.listen(tryPort, () => {
+  const port = server.address().port;
+  const url = `http://localhost:${port}`;
   process.stdout.write(
     "\n============================================================\n" +
       "   🎙  Guild War Broadcast — Control Panel (by KongPlayCh)\n" +
       `   🌐  ${url}\n` +
+      (port !== BASE_PORT ? `   ⚠️  port ${BASE_PORT} ไม่ว่าง เลยใช้ ${port} แทน\n` : "") +
       (PASSWORD ? "   🔒  ต้องใส่รหัสผ่าน (WEB_PASSWORD)\n" : "") +
       "   ❌  ปิดโปรแกรม: กดปุ่ม X มุมขวาบน (หรือ Ctrl+C)\n" +
       "============================================================\n"
